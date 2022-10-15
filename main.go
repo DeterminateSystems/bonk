@@ -18,7 +18,6 @@ import (
 	"strings"
 	"time"
 
-	"tailscale.com/client/tailscale"
 	"tailscale.com/tsnet"
 )
 
@@ -56,6 +55,11 @@ func main() {
 		AuthKey:  os.Getenv("TS_AUTHKEY"),
 	}
 
+	tsclient, err := s.LocalClient()
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	defer s.Close()
 	ln, err := s.Listen("tcp", *addr)
 	if err != nil {
@@ -65,12 +69,12 @@ func main() {
 
 	if *addr == ":443" {
 		ln = tls.NewListener(ln, &tls.Config{
-			GetCertificate: tailscale.GetCertificate,
+			GetCertificate: tsclient.GetCertificate,
 		})
 	}
 
 	log.Fatal(http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		who, err := tailscale.WhoIs(r.Context(), r.RemoteAddr)
+		who, err := tsclient.WhoIs(r.Context(), r.RemoteAddr)
 		if err != nil {
 			http.Error(w, err.Error(), 500)
 			return
