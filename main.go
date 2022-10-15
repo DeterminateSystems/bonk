@@ -51,8 +51,9 @@ func main() {
 	}
 
 	s := &tsnet.Server{
-		Hostname: "bonk",
 		AuthKey:  os.Getenv("TS_AUTHKEY"),
+		Ephemeral: true,
+		Hostname: "bonk",
 	}
 
 	tsclient, err := s.LocalClient()
