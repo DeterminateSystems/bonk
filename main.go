@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -55,13 +56,14 @@ func main() {
 		Ephemeral: true,
 		Hostname: "bonk",
 	}
+	defer s.Close()
 
 	tsclient, err := s.LocalClient()
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer tsclient.Logout(context.Background())
 
-	defer s.Close()
 	ln, err := s.Listen("tcp", *addr)
 	if err != nil {
 		log.Println(err)
