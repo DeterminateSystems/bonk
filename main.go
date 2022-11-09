@@ -51,9 +51,9 @@ func main() {
 	}
 
 	s := &tsnet.Server{
-		AuthKey:  os.Getenv("TS_AUTHKEY"),
+		AuthKey:   os.Getenv("TS_AUTHKEY"),
 		Ephemeral: true,
-		Hostname: "bonk",
+		Hostname:  "bonk",
 	}
 
 	tsclient, err := s.LocalClient()
@@ -127,7 +127,7 @@ func main() {
 ⠀⠀⠀⠀⠀⠀⠀⢸⡀⠸⡄⠀⠀⠀⠀⣧⠴⠃⠉⠉⠁⠀⠀⠰⣾⡭⠔⠁⠀⠀⠀⡜⠀⡇⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠳⢤⣼⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠂⠄⠀⠀⠀⠀⠀⢰⣥⣴⠃⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠐⠀⠤⠐⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-` + "%s, you're getting bonked! See you soon!\n",
+`+"%s, you're getting bonked! See you soon!\n",
 				html.EscapeString(firstLabel(who.Node.ComputedName)),
 			)
 		}
