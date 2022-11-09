@@ -82,6 +82,10 @@ func main() {
 		}
 
 		name := firstLabel(who.Node.ComputedName)
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed", 405)
+			return
+		}
 
 		devices, err := enumerateMachines()
 		if err != nil {
