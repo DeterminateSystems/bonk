@@ -81,10 +81,17 @@ func main() {
 			return
 		}
 
-		name := firstLabel(who.Node.ComputedName)
 		if r.Method != "POST" {
 			http.Error(w, "Method not allowed", 405)
 			return
+		}
+
+		var name string
+		isSelf := r.URL.Path == ""
+		if isSelf {
+			name = r.URL.Path
+		} else {
+			name = firstLabel(who.Node.ComputedName)
 		}
 
 		devices, err := enumerateMachines()
@@ -104,9 +111,16 @@ func main() {
 		}
 
 		if device == nil {
-			fmt.Fprintf(w, "I don't know who you are, %s!\n",
-				html.EscapeString(firstLabel(who.Node.ComputedName)),
-			)
+			if isSelf {
+				fmt.Fprintf(w, "I don't know who you are, %s!\n",
+					html.EscapeString(firstLabel(who.Node.ComputedName)),
+				)
+			} else {
+				fmt.Fprintf(w, "I don't know who %s is, %s!\n",
+					html.EscapeString(firstLabel(who.Node.ComputedName)),
+					html.EscapeString(name),
+				)
+			}
 
 			log.Printf("no known device by name %s", name)
 		} else {
