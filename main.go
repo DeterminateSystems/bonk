@@ -51,9 +51,9 @@ func main() {
 	}
 
 	s := &tsnet.Server{
-		AuthKey:  os.Getenv("TS_AUTHKEY"),
+		AuthKey:   os.Getenv("TS_AUTHKEY"),
 		Ephemeral: true,
-		Hostname: "bonk",
+		Hostname:  "bonk",
 	}
 
 	tsclient, err := s.LocalClient()
@@ -75,13 +75,31 @@ func main() {
 	}
 
 	log.Fatal(http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		who, err := tsclient.WhoIs(r.Context(), r.RemoteAddr)
-		if err != nil {
-			http.Error(w, err.Error(), 500)
+		path := strings.TrimLeft(r.URL.Path, "/")
+		if !(strings.HasPrefix(path, "erase/") || path == "erase-self") {
+			http.Error(w, "Not found. Try /erase-self or /erase/<node-name>", 404)
 			return
 		}
 
-		name := firstLabel(who.Node.ComputedName)
+		who, err := tsclient.WhoIs(r.Context(), r.RemoteAddr)
+		if err != nil {
+			log.Printf("Could not identify client: %v", err)
+			http.Error(w, "Unauthorized", 401)
+			return
+		}
+
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed, only POSTs can erase", 405)
+			return
+		}
+
+		var name string
+		isSelf := path == "erase-self"
+		if isSelf {
+			name = firstLabel(who.Node.ComputedName)
+		} else {
+			name = strings.TrimPrefix(r.URL.Path, "erase/")
+		}
 
 		devices, err := enumerateMachines()
 		if err != nil {
@@ -100,9 +118,16 @@ func main() {
 		}
 
 		if device == nil {
-			fmt.Fprintf(w, "I don't know who you are, %s!\n",
-				html.EscapeString(firstLabel(who.Node.ComputedName)),
-			)
+			if isSelf {
+				fmt.Fprintf(w, "I don't know who you are, %s!\n",
+					html.EscapeString(firstLabel(who.Node.ComputedName)),
+				)
+			} else {
+				fmt.Fprintf(w, "I don't know who %s is, %s!\n",
+					html.EscapeString(firstLabel(who.Node.ComputedName)),
+					html.EscapeString(name),
+				)
+			}
 
 			log.Printf("no known device by name %s", name)
 		} else {
@@ -127,7 +152,7 @@ func main() {
 ⠀⠀⠀⠀⠀⠀⠀⢸⡀⠸⡄⠀⠀⠀⠀⣧⠴⠃⠉⠉⠁⠀⠀⠰⣾⡭⠔⠁⠀⠀⠀⡜⠀⡇⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠳⢤⣼⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠂⠄⠀⠀⠀⠀⠀⢰⣥⣴⠃⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠐⠀⠤⠐⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-` + "%s, you're getting bonked! See you soon!\n",
+`+"%s, you're getting bonked! See you soon!\n",
 				html.EscapeString(firstLabel(who.Node.ComputedName)),
 			)
 		}
