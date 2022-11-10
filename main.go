@@ -98,7 +98,7 @@ func main() {
 		if isSelf {
 			name = firstLabel(who.Node.ComputedName)
 		} else {
-			name = strings.TrimPrefix(r.URL.Path, "erase/")
+			name = strings.TrimPrefix(path, "erase/")
 		}
 
 		devices, err := enumerateMachines()
@@ -124,8 +124,8 @@ func main() {
 				)
 			} else {
 				fmt.Fprintf(w, "I don't know who %s is, %s!\n",
-					html.EscapeString(firstLabel(who.Node.ComputedName)),
 					html.EscapeString(name),
+					html.EscapeString(firstLabel(who.Node.ComputedName)),
 				)
 			}
 
@@ -152,8 +152,8 @@ func main() {
 ⠀⠀⠀⠀⠀⠀⠀⢸⡀⠸⡄⠀⠀⠀⠀⣧⠴⠃⠉⠉⠁⠀⠀⠰⣾⡭⠔⠁⠀⠀⠀⡜⠀⡇⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠳⢤⣼⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠂⠄⠀⠀⠀⠀⠀⢰⣥⣴⠃⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠐⠀⠤⠐⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-`+"%s, you're getting bonked! See you soon!\n",
-				html.EscapeString(firstLabel(who.Node.ComputedName)),
+`+"%s is getting bonked! See you soon!\n",
+				html.EscapeString(name),
 			)
 		}
 	})))
