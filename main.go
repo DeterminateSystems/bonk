@@ -75,23 +75,30 @@ func main() {
 	}
 
 	log.Fatal(http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimLeft(r.URL.Path, "/")
+		if !(strings.HasPrefix(path, "erase/") || path == "erase-self") {
+			http.Error(w, "Not found. Try /erase-self or /erase/<node-name>", 404)
+			return
+		}
+
 		who, err := tsclient.WhoIs(r.Context(), r.RemoteAddr)
 		if err != nil {
-			http.Error(w, err.Error(), 500)
+			log.Printf("Could not identify client: %v", err)
+			http.Error(w, "Unauthorized", 401)
 			return
 		}
 
 		if r.Method != "POST" {
-			http.Error(w, "Method not allowed", 405)
+			http.Error(w, "Method not allowed, only POSTs can erase", 405)
 			return
 		}
 
 		var name string
-		isSelf := r.URL.Path == ""
+		isSelf := path == "erase-self"
 		if isSelf {
-			name = r.URL.Path
-		} else {
 			name = firstLabel(who.Node.ComputedName)
+		} else {
+			name = strings.TrimPrefix(r.URL.Path, "erase/")
 		}
 
 		devices, err := enumerateMachines()
