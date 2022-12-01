@@ -83,6 +83,7 @@ func main() {
 
 	http.HandleFunc("/erase/", withEraseContext(erase))
 	http.HandleFunc("/erase-self", withEraseContext(eraseSelf))
+	http.HandleFunc("/erase-all", withEraseContext(eraseAll))
 	http.HandleFunc("/", notFound)
 
 	log.Fatal(http.Serve(ln, nil))
@@ -129,7 +130,31 @@ func erase(w http.ResponseWriter, r *http.Request) {
 	bonk(w, r, name)
 }
 
+// This sends the erase requests one-by-one synchronously. It would be
+// nicer to submit them in parallel and return a job ID or something
+// which can later be queried for progress, but at the current scale (4
+// machines) I think waiting a few seconds per machine is still
+// acceptable.
+func eraseAll(w http.ResponseWriter, r *http.Request) {
+	context := r.Context().Value(ctxKey{}).(eraseContext)
+	anyFailed := false
+	messages := make([]string, 0, len(context.devices))
+	for _, device := range context.devices {
+		if err := sendErase(device); err != nil {
+			anyFailed = true
+			messages = append(messages, fmt.Sprintf("could not bonk %s: %s\n", device.LocalHostName, err))
+		} else {
+			messages = append(messages, fmt.Sprintf("bonking %s!\n", device.LocalHostName))
+		}
 	}
+	if anyFailed {
+		w.WriteHeader(500)
+	}
+	for _, msg := range messages {
+		w.Write([]byte("IT'S A BONK PARTY!"))
+		w.Write([]byte(msg))
+	}
+}
 
 func bonk(w http.ResponseWriter, r *http.Request, name string) {
 
