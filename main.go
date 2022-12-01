@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"tailscale.com/client/tailscale"
 	"tailscale.com/tsnet"
 )
 
@@ -40,6 +41,8 @@ type Device struct {
 	DeviceUDID    string `json:deviceudid`
 	LocalHostName string `json:LocalHostname`
 }
+
+var tsclient tailscale.LocalClient
 
 func main() {
 	flag.Parse()
@@ -74,68 +77,66 @@ func main() {
 		})
 	}
 
-	log.Fatal(http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimLeft(r.URL.Path, "/")
-		if !(strings.HasPrefix(path, "erase/") || path == "erase-self") {
-			http.Error(w, "Not found. Try /erase-self or /erase/<node-name>", 404)
-			return
-		}
+	http.HandleFunc("/erase", erase)
+	http.HandleFunc("/erase-self", eraseSelf)
+	http.HandleFunc("/", notFound)
 
-		who, err := tsclient.WhoIs(r.Context(), r.RemoteAddr)
-		if err != nil {
-			log.Printf("Could not identify client: %v", err)
-			http.Error(w, "Unauthorized", 401)
-			return
-		}
+	log.Fatal(http.Serve(ln, nil))
+}
 
-		if r.Method != "POST" {
-			http.Error(w, "Method not allowed, only POSTs can erase", 405)
-			return
-		}
+func eraseSelf(w http.ResponseWriter, r *http.Request) {
+	// if this fails, we'll return a 401 anyway so let's ignore the error here
+	who, _ := tsclient.WhoIs(r.Context(), r.RemoteAddr)
+	bonk(w, r, who.Node.ComputedName)
+}
 
-		var name string
-		isSelf := path == "erase-self"
-		if isSelf {
-			name = firstLabel(who.Node.ComputedName)
-		} else {
-			name = strings.TrimPrefix(path, "erase/")
-		}
+func erase(w http.ResponseWriter, r *http.Request) {
+	_, name, _ := strings.Cut(r.URL.Path, "/")
+	bonk(w, r, name)
+}
 
-		devices, err := enumerateMachines()
+func bonk(w http.ResponseWriter, r *http.Request, name string) {
+	who, err := tsclient.WhoIs(r.Context(), r.RemoteAddr)
+	if err != nil {
+		log.Printf("Could not identify client: %v", err)
+		http.Error(w, "Unauthorized", 401)
+		return
+	}
+
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed, only POSTs can erase", 405)
+		return
+	}
+
+	devices, err := enumerateMachines()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	device, err := getDeviceFromName(devices, name)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if device == nil {
+		device, err = getDeviceFromName(devices, strings.TrimSuffix(name, "-1"))
 		if err != nil {
 			log.Fatal(err)
 		}
+	}
 
-		device, err := getDeviceFromName(devices, name)
-		if err != nil {
-			log.Fatal(err)
-		}
-		if device == nil {
-			device, err = getDeviceFromName(devices, strings.TrimSuffix(name, "-1"))
-			if err != nil {
-				log.Fatal(err)
-			}
-		}
+	if device == nil {
+		fmt.Fprintf(w, "I don't know who %s is, %s!\n",
+			html.EscapeString(name),
+			html.EscapeString(firstLabel(who.Node.ComputedName)),
+		)
+		log.Printf("no known device by name %s", name)
 
-		if device == nil {
-			if isSelf {
-				fmt.Fprintf(w, "I don't know who you are, %s!\n",
-					html.EscapeString(firstLabel(who.Node.ComputedName)),
-				)
-			} else {
-				fmt.Fprintf(w, "I don't know who %s is, %s!\n",
-					html.EscapeString(name),
-					html.EscapeString(firstLabel(who.Node.ComputedName)),
-				)
-			}
+	} else {
+		//if err = sendErase(*device); err != nil {
+		//	log.Printf("Failed to erase %s:", name, err)
+		//}
 
-			log.Printf("no known device by name %s", name)
-		} else {
-			if err = sendErase(*device); err != nil {
-				log.Printf("Failed to erase %s:", name, err)
-			}
-
-			fmt.Fprintf(w, `
+		fmt.Fprintf(w, `
 ⠀⠀⠀⠀⠀⠀⢀⣁⣤⣶⣶⡒⠒⠲⠾⣭⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⣿⡀⣸⠟⠛⠃⠀⣀⣀⠈⣷⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣴⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⡠⠂⢠⠏⠀⠉⠀⠀⠀⠰⣿⠟⠀⠙⢧⡀⠀⠀⠀⠀⠀⠀⢀⠀⠀⢀⢀⡀⣼⣧⡾⠃⠀⠀⠀⠀⠀
@@ -153,10 +154,14 @@ func main() {
 ⠀⠀⠀⠀⠀⠀⠀⠀⠳⢤⣼⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠂⠄⠀⠀⠀⠀⠀⢰⣥⣴⠃⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠐⠀⠤⠐⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 `+"%s is getting bonked! See you soon!\n",
-				html.EscapeString(name),
-			)
-		}
-	})))
+			html.EscapeString(name),
+		)
+	}
+}
+
+func notFound(w http.ResponseWriter, r *http.Request) {
+	http.Error(w, "Not found. Try /erase-self or /erase/<node-name>", 404)
+	return
 }
 
 func firstLabel(s string) string {
