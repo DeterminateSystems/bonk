@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -15,10 +16,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
 	"tailscale.com/client/tailscale"
+	"tailscale.com/client/tailscale/apitype"
 	"tailscale.com/tsnet"
 )
 
@@ -42,7 +45,7 @@ type Device struct {
 	LocalHostName string `json:LocalHostname`
 }
 
-var tsclient tailscale.LocalClient
+var tsclient *tailscale.LocalClient
 
 func main() {
 	flag.Parse()
@@ -59,10 +62,11 @@ func main() {
 		Hostname:  "bonk",
 	}
 
-	tsclient, err := s.LocalClient()
+	tsclient_, err := s.LocalClient()
 	if err != nil {
 		log.Fatal(err)
 	}
+	tsclient = tsclient_
 
 	defer s.Close()
 	ln, err := s.Listen("tcp", *addr)
@@ -77,36 +81,46 @@ func main() {
 		})
 	}
 
-	http.HandleFunc("/erase", erase)
-	http.HandleFunc("/erase-self", eraseSelf)
+	http.HandleFunc("/erase/", withAuth(erase))
+	http.HandleFunc("/erase-self", withAuth(eraseSelf))
 	http.HandleFunc("/", notFound)
 
 	log.Fatal(http.Serve(ln, nil))
 }
 
-func eraseSelf(w http.ResponseWriter, r *http.Request) {
-	// if this fails, we'll return a 401 anyway so let's ignore the error here
-	who, _ := tsclient.WhoIs(r.Context(), r.RemoteAddr)
-	bonk(w, r, who.Node.ComputedName)
+type ctxKey struct{}
+
+func withAuth(fn http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		who, err := tsclient.WhoIs(r.Context(), r.RemoteAddr)
+		if err != nil {
+			log.Printf("Could not identify client: %v", err)
+			http.Error(w, "Unauthorized", 401)
+			return
+		}
+
+		fn(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, who)))
+	}
 }
 
+func eraseSelf(w http.ResponseWriter, r *http.Request) {
+	bonk(w, r, r.Context().Value(ctxKey{}).(*apitype.WhoIsResponse).Node.ComputedName)
+}
+
+var nameRegex = regexp.MustCompile("/erase/([^/]+)")
+
 func erase(w http.ResponseWriter, r *http.Request) {
-	_, name, _ := strings.Cut(r.URL.Path, "/")
+	name := nameRegex.FindStringSubmatch(r.URL.Path)[1]
 	bonk(w, r, name)
 }
 
 func bonk(w http.ResponseWriter, r *http.Request, name string) {
-	who, err := tsclient.WhoIs(r.Context(), r.RemoteAddr)
-	if err != nil {
-		log.Printf("Could not identify client: %v", err)
-		http.Error(w, "Unauthorized", 401)
-		return
-	}
-
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed, only POSTs can erase", 405)
 		return
 	}
+
+	who := r.Context().Value(ctxKey{}).(*apitype.WhoIsResponse)
 
 	devices, err := enumerateMachines()
 	if err != nil {
@@ -136,24 +150,7 @@ func bonk(w http.ResponseWriter, r *http.Request, name string) {
 		//	log.Printf("Failed to erase %s:", name, err)
 		//}
 
-		fmt.Fprintf(w, `
-⠀⠀⠀⠀⠀⠀⢀⣁⣤⣶⣶⡒⠒⠲⠾⣭⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⣿⡀⣸⠟⠛⠃⠀⣀⣀⠈⣷⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣴⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⡠⠂⢠⠏⠀⠉⠀⠀⠀⠰⣿⠟⠀⠙⢧⡀⠀⠀⠀⠀⠀⠀⢀⠀⠀⢀⢀⡀⣼⣧⡾⠃⠀⠀⠀⠀⠀
-⢀⠔⠀⣠⠔⠁⠀⠀⠀⠀⠀⠀⠀⠰⢄⡠⣶⢾⣽⡆⠀⠀⠀⠀⠄⢡⡀⢰⣾⣿⡀⠈⠵⠟⠛⠀⠀⠀⠀⠀
-⠀⣠⠊⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⡟⠋⠉⠀⠀⠀⠀⣰⢦⣼⡷⣼⡏⢯⢉⣡⠖⠋⣩⡇⠀⠀⠀⠀
-⣰⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡇⠀⠀⠀⢺⣿⡄⣿⡄⣿⢿⠈⢁⡴⠋⠀⢀⣴⣋⡀⠀⠀⠀⠀
-⡇⠀⠀⢰⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣿⠒⢛⣡⣸⡏⢹⡟⠻⠏⢀⡴⠋⠀⣠⣖⠻⠿⠿⣤⡀⠀⠀⠀
-⡇⠀⠀⠈⣇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⡟⠀⠛⢡⡞⠻⠟⠁⢀⡴⠋⢀⣤⣞⣛⣻⡆⠀⠀⠉⢇⠀⠀⠀
-⣇⠀⠀⠀⠈⢦⠀⠀⠀⠀⠀⠀⠀⠀⠀⢠⠇⠀⠠⠏⠀⠀⢀⠴⠋⣀⠴⣿⠛⠛⠁⠈⠁⠀⠀⠀⠈⢧⠀⡄
-⠸⡄⠀⠀⠀⠀⡇⠀⠀⢰⠃⠀⠈⣇⠀⠸⣦⡀⠀⠀⢀⡔⠁⣠⠞⠁⠀⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⡀⠀
-⠀⠙⣄⠀⠀⠀⣿⠀⠀⢸⠒⠒⠒⠻⡀⠀⣷⠬⣉⡶⠋⣠⠞⠁⠀⠀⠀⡇⠀⠀⠀⡀⠀⢠⠀⠀⠀⠘⡇⠀
-⠀⠀⠈⠑⠦⠤⣽⣄⠀⢸⠤⠤⠤⠤⢷⡀⠸⣷⠋⣠⢾⡁⠀⠀⠀⠀⠀⡇⢠⠇⠀⢹⠀⢸⠃⠀⠀⣸⠃⠀
-⠀⠀⠀⠀⠀⠀⠀⢹⠀⢸⠀⠀⠀⠀⠀⢈⠦⣀⣙⣻⡞⠃⠀⠀⠀⢀⡼⢡⠧⠤⠤⢸⠀⣾⠤⠤⠚⠁⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⢸⡀⠸⡄⠀⠀⠀⠀⣧⠴⠃⠉⠉⠁⠀⠀⠰⣾⡭⠔⠁⠀⠀⠀⡜⠀⡇⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠳⢤⣼⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠂⠄⠀⠀⠀⠀⠀⢰⣥⣴⠃⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠐⠀⠤⠐⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-`+"%s is getting bonked! See you soon!\n",
+		fmt.Fprintf(w, "%s is not getting bonked now, sorry! (Linus is hacking on prod)",
 			html.EscapeString(name),
 		)
 	}
