@@ -81,30 +81,45 @@ func main() {
 		})
 	}
 
-	http.HandleFunc("/erase/", withAuth(erase))
-	http.HandleFunc("/erase-self", withAuth(eraseSelf))
+	http.HandleFunc("/erase/", withEraseContext(erase))
+	http.HandleFunc("/erase-self", withEraseContext(eraseSelf))
 	http.HandleFunc("/", notFound)
 
 	log.Fatal(http.Serve(ln, nil))
 }
 
 type ctxKey struct{}
+type eraseContext struct {
+	client  *apitype.WhoIsResponse
+	devices []Device
+}
 
-func withAuth(fn http.HandlerFunc) http.HandlerFunc {
+func withEraseContext(fn http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		who, err := tsclient.WhoIs(r.Context(), r.RemoteAddr)
+		client, err := tsclient.WhoIs(r.Context(), r.RemoteAddr)
 		if err != nil {
 			log.Printf("Could not identify client: %v", err)
 			http.Error(w, "Unauthorized", 401)
 			return
 		}
 
-		fn(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, who)))
+		if r.Method != "POST" {
+			http.Error(w, "Method not allowed, only POSTs can erase", 405)
+			return
+		}
+
+		devices, err := enumerateMachines()
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		ctx := eraseContext{client, devices}
+		fn(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, ctx)))
 	}
 }
 
 func eraseSelf(w http.ResponseWriter, r *http.Request) {
-	bonk(w, r, r.Context().Value(ctxKey{}).(*apitype.WhoIsResponse).Node.ComputedName)
+	bonk(w, r, r.Context().Value(ctxKey{}).(eraseContext).client.Node.ComputedName)
 }
 
 var nameRegex = regexp.MustCompile("/erase/([^/]+)")
@@ -114,25 +129,19 @@ func erase(w http.ResponseWriter, r *http.Request) {
 	bonk(w, r, name)
 }
 
+	}
+
 func bonk(w http.ResponseWriter, r *http.Request, name string) {
-	if r.Method != "POST" {
-		http.Error(w, "Method not allowed, only POSTs can erase", 405)
-		return
-	}
 
-	who := r.Context().Value(ctxKey{}).(*apitype.WhoIsResponse)
+	context := r.Context().Value(ctxKey{}).(eraseContext)
 
-	devices, err := enumerateMachines()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	device, err := getDeviceFromName(devices, name)
+	device, err := getDeviceFromName(context.devices, name)
 	if err != nil {
 		log.Fatal(err)
 	}
 	if device == nil {
-		device, err = getDeviceFromName(devices, strings.TrimSuffix(name, "-1"))
+		// REVIEW: is this actually a thing that mosyle does?
+		device, err = getDeviceFromName(context.devices, strings.TrimSuffix(name, "-1"))
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -141,7 +150,7 @@ func bonk(w http.ResponseWriter, r *http.Request, name string) {
 	if device == nil {
 		fmt.Fprintf(w, "I don't know who %s is, %s!\n",
 			html.EscapeString(name),
-			html.EscapeString(firstLabel(who.Node.ComputedName)),
+			html.EscapeString(firstLabel(context.client.Node.ComputedName)),
 		)
 		log.Printf("no known device by name %s", name)
 
