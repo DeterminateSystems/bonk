@@ -4,6 +4,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"encoding/json"
 	"errors"
@@ -15,9 +16,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
+	"tailscale.com/client/tailscale"
+	"tailscale.com/client/tailscale/apitype"
 	"tailscale.com/tsnet"
 )
 
@@ -41,6 +45,8 @@ type Device struct {
 	LocalHostName string `json:LocalHostname`
 }
 
+var tsclient *tailscale.LocalClient
+
 func main() {
 	flag.Parse()
 
@@ -56,10 +62,11 @@ func main() {
 		Hostname:  "bonk",
 	}
 
-	tsclient, err := s.LocalClient()
+	tsclient_, err := s.LocalClient()
 	if err != nil {
 		log.Fatal(err)
 	}
+	tsclient = tsclient_
 
 	defer s.Close()
 	ln, err := s.Listen("tcp", *addr)
@@ -74,14 +81,23 @@ func main() {
 		})
 	}
 
-	log.Fatal(http.Serve(ln, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimLeft(r.URL.Path, "/")
-		if !(strings.HasPrefix(path, "erase/") || path == "erase-self") {
-			http.Error(w, "Not found. Try /erase-self or /erase/<node-name>", 404)
-			return
-		}
+	http.HandleFunc("/erase/", withEraseContext(erase))
+	http.HandleFunc("/erase-self", withEraseContext(eraseSelf))
+	http.HandleFunc("/erase-all", withEraseContext(eraseAll))
+	http.HandleFunc("/", notFound)
 
-		who, err := tsclient.WhoIs(r.Context(), r.RemoteAddr)
+	log.Fatal(http.Serve(ln, nil))
+}
+
+type ctxKey struct{}
+type eraseContext struct {
+	client  *apitype.WhoIsResponse
+	devices []Device
+}
+
+func withEraseContext(fn http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		client, err := tsclient.WhoIs(r.Context(), r.RemoteAddr)
 		if err != nil {
 			log.Printf("Could not identify client: %v", err)
 			http.Error(w, "Unauthorized", 401)
@@ -93,49 +109,82 @@ func main() {
 			return
 		}
 
-		var name string
-		isSelf := path == "erase-self"
-		if isSelf {
-			name = firstLabel(who.Node.ComputedName)
-		} else {
-			name = strings.TrimPrefix(path, "erase/")
-		}
-
 		devices, err := enumerateMachines()
 		if err != nil {
 			log.Fatal(err)
 		}
 
-		device, err := getDeviceFromName(devices, name)
+		ctx := eraseContext{client, devices}
+		fn(w, r.WithContext(context.WithValue(r.Context(), ctxKey{}, ctx)))
+	}
+}
+
+func eraseSelf(w http.ResponseWriter, r *http.Request) {
+	bonk(w, r, r.Context().Value(ctxKey{}).(eraseContext).client.Node.ComputedName)
+}
+
+var nameRegex = regexp.MustCompile("/erase/([^/]+)")
+
+func erase(w http.ResponseWriter, r *http.Request) {
+	name := nameRegex.FindStringSubmatch(r.URL.Path)[1]
+	bonk(w, r, name)
+}
+
+// This sends the erase requests one-by-one synchronously. It would be
+// nicer to submit them in parallel and return a job ID or something
+// which can later be queried for progress, but at the current scale (4
+// machines) I think waiting a few seconds per machine is still
+// acceptable.
+func eraseAll(w http.ResponseWriter, r *http.Request) {
+	context := r.Context().Value(ctxKey{}).(eraseContext)
+	anyFailed := false
+	messages := make([]string, 0, len(context.devices))
+	for _, device := range context.devices {
+		if err := sendErase(device); err != nil {
+			anyFailed = true
+			messages = append(messages, fmt.Sprintf("could not bonk %s: %s\n", device.LocalHostName, err))
+		} else {
+			messages = append(messages, fmt.Sprintf("bonking %s!\n", device.LocalHostName))
+		}
+	}
+	if anyFailed {
+		w.WriteHeader(500)
+	}
+	for _, msg := range messages {
+		w.Write([]byte("IT'S A BONK PARTY!"))
+		w.Write([]byte(msg))
+	}
+}
+
+func bonk(w http.ResponseWriter, r *http.Request, name string) {
+
+	context := r.Context().Value(ctxKey{}).(eraseContext)
+
+	device, err := getDeviceFromName(context.devices, name)
+	if err != nil {
+		log.Fatal(err)
+	}
+	if device == nil {
+		// REVIEW: is this actually a thing that mosyle does?
+		device, err = getDeviceFromName(context.devices, strings.TrimSuffix(name, "-1"))
 		if err != nil {
 			log.Fatal(err)
 		}
-		if device == nil {
-			device, err = getDeviceFromName(devices, strings.TrimSuffix(name, "-1"))
-			if err != nil {
-				log.Fatal(err)
-			}
+	}
+
+	if device == nil {
+		fmt.Fprintf(w, "I don't know who %s is, %s!\n",
+			html.EscapeString(name),
+			html.EscapeString(firstLabel(context.client.Node.ComputedName)),
+		)
+		log.Printf("no known device by name %s", name)
+
+	} else {
+		if err = sendErase(*device); err != nil {
+			log.Printf("Failed to erase %s:", name, err)
 		}
 
-		if device == nil {
-			if isSelf {
-				fmt.Fprintf(w, "I don't know who you are, %s!\n",
-					html.EscapeString(firstLabel(who.Node.ComputedName)),
-				)
-			} else {
-				fmt.Fprintf(w, "I don't know who %s is, %s!\n",
-					html.EscapeString(name),
-					html.EscapeString(firstLabel(who.Node.ComputedName)),
-				)
-			}
-
-			log.Printf("no known device by name %s", name)
-		} else {
-			if err = sendErase(*device); err != nil {
-				log.Printf("Failed to erase %s:", name, err)
-			}
-
-			fmt.Fprintf(w, `
+		fmt.Fprintf(w, `
 ⠀⠀⠀⠀⠀⠀⢀⣁⣤⣶⣶⡒⠒⠲⠾⣭⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⣿⡀⣸⠟⠛⠃⠀⣀⣀⠈⣷⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣴⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⡠⠂⢠⠏⠀⠉⠀⠀⠀⠰⣿⠟⠀⠙⢧⡀⠀⠀⠀⠀⠀⠀⢀⠀⠀⢀⢀⡀⣼⣧⡾⠃⠀⠀⠀⠀⠀
@@ -153,10 +202,14 @@ func main() {
 ⠀⠀⠀⠀⠀⠀⠀⠀⠳⢤⣼⡆⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠂⠄⠀⠀⠀⠀⠀⢰⣥⣴⠃⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⠀⠀⠐⠀⠤⠐⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 `+"%s is getting bonked! See you soon!\n",
-				html.EscapeString(name),
-			)
-		}
-	})))
+			html.EscapeString(name),
+		)
+	}
+}
+
+func notFound(w http.ResponseWriter, r *http.Request) {
+	http.Error(w, "Not found. Try /erase-self or /erase/<node-name>", 404)
+	return
 }
 
 func firstLabel(s string) string {
