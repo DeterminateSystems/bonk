@@ -251,7 +251,11 @@ func enumerateMachines() ([]Device, error) {
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("Authorization", "Basic "+os.Getenv("MOSYLE_AUTHORIZATION"))
-	req.Header.Set("accesstoken", os.Getenv("MOSYLE_ACCESS_TOKEN"))
+	// !!!: We don't use `Set` here because Mosyle is sensitive to the case of the
+	// `accesstoken` header -- http will canonicalize `accesstoken` to
+	// `Accesstoken`, and Mosyle won't accept that.
+	// https://stackoverflow.com/a/26352765
+	req.Header["accesstoken"] = []string{os.Getenv("MOSYLE_ACCESS_TOKEN")}
 
 	client := http.Client{
 		Timeout: 5 * time.Second,
