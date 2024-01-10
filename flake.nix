@@ -20,7 +20,7 @@
         default = pkgs.mkShell {
           name = "bonk";
           packages = with pkgs; [
-            go_1_19
+            go_1_21
             flyctl
             skopeo
             codespell
@@ -32,13 +32,13 @@
       packages = forEachSupportedSystem ({ pkgs }: rec {
         default = bonk;
 
-        bonk = pkgs.buildGo119Module rec {
+        bonk = pkgs.buildGo121Module rec {
           pname = "bonk";
           version = "unreleased";
 
           src = ./.;
 
-          vendorSha256 = "sha256-TFNoAjqyFHuFPURobqorWkChYiR2pi8TqAAn2TpDFDg=";
+          vendorHash = "sha256-7pYHwbo92uwpcG3nobtO3QHSnkst5mGOQ0+cvd1R4N8=";
         };
 
         dockerImage =
