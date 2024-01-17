@@ -38,7 +38,7 @@
 
           src = ./.;
 
-          vendorHash = "sha256-7pYHwbo92uwpcG3nobtO3QHSnkst5mGOQ0+cvd1R4N8=";
+          vendorHash = "sha256-T3UYmg3k7pf0icwP3noHK5j+NuAkITJ7d+kjUFW9eqU=";
         };
 
         dockerImage =
