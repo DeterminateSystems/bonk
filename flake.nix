@@ -32,7 +32,7 @@
       packages = forEachSupportedSystem ({ pkgs }: rec {
         default = bonk;
 
-        bonk = pkgs.buildGo121Module rec {
+        bonk = pkgs.buildGo122Module rec {
           pname = "bonk";
           version = "unreleased";
 
