@@ -61,7 +61,7 @@ func main() {
 	go func() {
 	DailyRefresh:
 		for {
-			time.Sleep(23 * time.Hour)
+			time.Sleep(20 * time.Hour)
 
 			err := mosyleLogin()
 			if err == nil {
@@ -69,8 +69,8 @@ func main() {
 			}
 
 			log.Printf("failed to login to mosyle, trying again several more times: %v\n", err)
-			for i := 0; i <= 55; i += 1 {
-				time.Sleep(55 * time.Second)
+			for i := 0; i <= 60; i += 1 {
+				time.Sleep(220 * time.Second)
 				err := mosyleLogin()
 				if err == nil {
 					continue DailyRefresh
@@ -81,7 +81,7 @@ func main() {
 		}
 	}()
 
-	log.Fatalf("Verifying we can fetch machines from Mosyle...")
+	log.Println("Verifying we can fetch machines from Mosyle...")
 	m, err := enumerateMachines()
 	if err != nil {
 		log.Fatal(err)
