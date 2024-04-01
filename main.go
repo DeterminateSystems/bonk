@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -26,7 +27,8 @@ import (
 )
 
 var (
-	addr = flag.String("addr", ":80", "address to listen on")
+	addr        = flag.String("addr", ":80", "address to listen on")
+	jwt  string = ""
 )
 
 type DeviceListResponse struct {
@@ -50,11 +52,41 @@ var tsclient *tailscale.LocalClient
 func main() {
 	flag.Parse()
 
-	log.Println("Verifying we can fetch machines from Mosyle...")
-	_, err := enumerateMachines()
+	log.Println("Logging in to Mosyle ...")
+	err := mosyleLogin()
+	if err != nil {
+		log.Fatalf("failed to login to mosyle: %v", err)
+	}
+
+	go func() {
+	DailyRefresh:
+		for {
+			time.Sleep(23 * time.Hour)
+
+			err := mosyleLogin()
+			if err == nil {
+				continue DailyRefresh
+			}
+
+			log.Printf("failed to login to mosyle, trying again several more times: %v\n", err)
+			for i := 0; i <= 55; i += 1 {
+				time.Sleep(55 * time.Second)
+				err := mosyleLogin()
+				if err == nil {
+					continue DailyRefresh
+				}
+				log.Printf("Failure #%d/55: %v\n", i, err)
+			}
+			log.Fatalf("No luck after a bunch of attempts")
+		}
+	}()
+
+	log.Fatalf("Verifying we can fetch machines from Mosyle...")
+	m, err := enumerateMachines()
 	if err != nil {
 		log.Fatal(err)
 	}
+	log.Println("Current machines:", m)
 
 	s := &tsnet.Server{
 		AuthKey:   os.Getenv("TS_AUTHKEY"),
@@ -238,6 +270,51 @@ func getDeviceFromName(devices []Device, name string) (*Device, error) {
 	return &matching_udids[0], nil
 }
 
+func mosyleLogin() error {
+	data, err := json.Marshal(map[string]string{
+		"email":    os.Getenv("MOSYLE_EMAIL"),
+		"password": os.Getenv("MOSYLE_PASSWORD"),
+	})
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, "https://businessapi.mosyle.com/v1/login", bytes.NewBuffer(data))
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+	// !!!: We don't use `Set` here because Mosyle is sensitive to the case of the
+	// `accesstoken` header -- http will canonicalize `accesstoken` to
+	// `Accesstoken`, and Mosyle won't accept that.
+	// https://stackoverflow.com/a/26352765
+	req.Header["accessToken"] = []string{os.Getenv("MOSYLE_ACCESS_TOKEN")}
+
+	client := http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	res, err := client.Do(req)
+	if err != nil {
+		return err
+	}
+
+	if res.StatusCode == 200 {
+		if len(res.Header["Authorization"]) == 1 {
+			jwt = res.Header["Authorization"][0]
+			fmt.Println("Refreshed the Mosyle JWT")
+			return nil
+		} else {
+			return fmt.Errorf("no jwt with the body")
+		}
+	} else {
+		body, _ := ioutil.ReadAll(res.Body)
+		fmt.Printf("logging in failed\n response: %v\nbody: %v\n", res, string(body))
+		return fmt.Errorf("non-200 response while logging in")
+	}
+}
+
 func enumerateMachines() ([]Device, error) {
 	data := url.Values{
 		"operation":   {"list"},
@@ -250,7 +327,7 @@ func enumerateMachines() ([]Device, error) {
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Authorization", "Basic "+os.Getenv("MOSYLE_AUTHORIZATION"))
+	req.Header.Set("Authorization", jwt)
 	// !!!: We don't use `Set` here because Mosyle is sensitive to the case of the
 	// `accesstoken` header -- http will canonicalize `accesstoken` to
 	// `Accesstoken`, and Mosyle won't accept that.
@@ -314,7 +391,7 @@ func sendErase(device Device) error {
 	}
 
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Authorization", "Basic "+os.Getenv("MOSYLE_AUTHORIZATION"))
+	req.Header.Set("Authorization", jwt)
 	req.Header.Set("accesstoken", os.Getenv("MOSYLE_ACCESS_TOKEN"))
 
 	client := http.Client{
