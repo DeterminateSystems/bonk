@@ -75,7 +75,7 @@ func main() {
 				if err == nil {
 					continue DailyRefresh
 				}
-				log.Printf("Failure #%d/55: %v\n", i, err)
+				log.Printf("Failure #%d/60: %v\n", i, err)
 			}
 			log.Fatalf("No luck after a bunch of attempts")
 		}
