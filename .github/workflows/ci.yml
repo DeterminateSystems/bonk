@@ -27,11 +27,13 @@ jobs:
   build-x86_64-linux:
     name: Build x86_64 Linux
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.head_ref }}
-          token: ${{ secrets.PR_TOKEN }}
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
