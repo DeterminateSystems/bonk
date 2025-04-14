@@ -20,7 +20,7 @@
         default = pkgs.mkShell {
           name = "bonk";
           packages = with pkgs; [
-            go_1_22
+            go
             flyctl
             skopeo
             codespell
