@@ -1,8 +1,8 @@
 {
   description = "bonk-api";
 
-  inputs.nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1.533189.tar.gz";
-  inputs.flake-compat.url = "https://flakehub.com/f/edolstra/flake-compat/1.0.1.tar.gz";
+  inputs.nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1";
+  inputs.flake-compat.url = "https://flakehub.com/f/edolstra/flake-compat/1";
 
   outputs =
     { self
@@ -20,7 +20,7 @@
         default = pkgs.mkShell {
           name = "bonk";
           packages = with pkgs; [
-            go_1_22
+            go
             flyctl
             skopeo
             codespell
@@ -32,7 +32,7 @@
       packages = forEachSupportedSystem ({ pkgs }: rec {
         default = bonk;
 
-        bonk = pkgs.buildGo122Module rec {
+        bonk = pkgs.buildGoModule {
           pname = "bonk";
           version = "unreleased";
 
