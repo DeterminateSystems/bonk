@@ -27,15 +27,11 @@ jobs:
   build-x86_64-linux:
     name: Build x86_64 Linux
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write
-      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
-      - uses: DeterminateSystems/flakehub-cache-action@main
       - name: Build server
         run: nix build --print-build-logs .#packages.x86_64-linux.bonk
       - name: Build docker image
