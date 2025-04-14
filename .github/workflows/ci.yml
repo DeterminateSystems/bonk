@@ -8,24 +8,34 @@ on:
 jobs:
   lints:
     name: Lints
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
-      - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
       - uses: DeterminateSystems/flake-checker-action@main
         with:
           fail-mode: true
+      - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: true
+      - uses: DeterminateSystems/flakehub-cache-action@main
       - name: Check Go fmt
         run: nix develop --command sh -c 'gofmt -l . && test -z "$(gofmt -l .)"'
 
   build-x86_64-linux:
     name: Build x86_64 Linux
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: DeterminateSystems/nix-installer-action@main
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+        with:
+          determinate: true
+      - uses: DeterminateSystems/flakehub-cache-action@main
       - name: Build server
         run: nix build --print-build-logs .#packages.x86_64-linux.bonk
       - name: Build docker image
