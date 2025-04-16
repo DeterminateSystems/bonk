@@ -43,7 +43,7 @@ jobs:
         run: |
           nix build .#packages.x86_64-linux.dockerImage
       - name: Fix hash mismatches
-        if: failure()
+        if: failure() && false
         run: |
           determinate-nixd fix hashes --auto-apply
 
