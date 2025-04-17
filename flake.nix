@@ -1,7 +1,7 @@
 {
   description = "bonk-api";
 
-  inputs.nixpkgs.url = "https://flakehub.com/f/NixOS/nixpkgs/0.1";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs?ref=pull/399532/head";
   inputs.flake-compat.url = "https://flakehub.com/f/edolstra/flake-compat/1";
 
   outputs =
@@ -37,6 +37,7 @@
           version = "unreleased";
 
           src = ./.;
+          goSum = ./go.sum;
 
           vendorHash = "sha256-hks/ItrAxVImBPb83+Q/nHW+KeayAtco2GCUPmBS8Vo=";
         };
