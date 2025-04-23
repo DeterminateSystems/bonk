@@ -32,8 +32,6 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref }}
       - uses: DeterminateSystems/nix-installer-action@main
         with:
           determinate: true
@@ -43,14 +41,22 @@ jobs:
         run: |
           nix build .#packages.x86_64-linux.dockerImage
       - name: Fix hash mismatches
-        if: failure() && false
+        if: failure() && github.event_name == 'pull_request'
+        id: fix-hashes
         run: |
+          git stash --include-untracked
+          git fetch --depth=1 origin "$GITHUB_HEAD_REF"
+          git checkout -B "$GITHUB_HEAD_REF" "${{ github.event.pull_request.head.sha }}"
+
           determinate-nixd fix hashes --auto-apply
 
           if ! git diff --quiet; then
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git add .
-            git commit -m "[dependabot skip] Fix hashes"
-            git push
+            git add --update --ignore-removal .
+            git commit -m "[dependabot skip] Automatically fix Nix hashes"
+            git push origin "$GITHUB_HEAD_REF"
           fi
+
+          git checkout -
+          git stash pop || true
