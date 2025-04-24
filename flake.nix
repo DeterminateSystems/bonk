@@ -38,6 +38,7 @@
 
           src = ./.;
 
+          goSum = ./go.sum;
           vendorHash = "sha256-4bEkKL5ctmz+yE4YqncYKGKQfSejy/XQ/QDKrOB1A8M=";
         };
 
