@@ -39,7 +39,7 @@
           src = ./.;
 
           goSum = ./go.sum;
-          vendorHash = "sha256-YEkMm3x/4yD8YjXK/h26F88WE17koHwJray5lAZGs2A=";
+          vendorHash = "sha256-FG5sDOfkHMoLkCelT5LzLLgkfJYsYxfDKP6DwUWSLlY=";
         };
 
         dockerImage =
